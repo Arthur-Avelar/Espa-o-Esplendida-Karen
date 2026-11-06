@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Painel de Controle - Espaço Esplêndida</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background: linear-gradient(135deg, #f5f2eb 0%, #e6dcc8 100%);
+      color: #2c241d;
+      font-family: 'Georgia', serif;
+    }
+  </style>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, collection, getDocs, deleteDoc, doc, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    // INSIRA AS CHAVES firebaseConfig CORRETAS AQUI
+         const firebaseConfig = { 
+     apiKey: "AIzaSyAVuqbTtOzOs_hmASymvE-UAdxPIlOo93g", 
+     authDomain: "espaco-esplendida-karen.firebaseapp.com", 
+     projectId: "espaco-esplendida-karen", 
+     storageBucket: "espaco-esplendida-karen.firebasestorage.app", 
+     messagingSenderId: "150426245872", 
+     appId: "1:150426245872:web:f9e73409cdf829e3fd8035", 
+     measurementId: "G-G6NHLL8254" 
+     }; 
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const hoje = new Date().toISOString().split("T")[0];
+
+    // Função para formatar a data de YYYY-MM-DD para algo elegante (Ex: Quarta-feira, 23 de Dezembro de 2026)
+    function formatarDataBonita(dataString) {
+      if (!dataString) return "";
+      const partes = dataString.split("-");
+      const ano = partes[0];
+      const mes = partes[1];
+      const dia = partes[2];
+      
+      const dataObj = new Date(ano, mes - 1, dia);
+      const opcoes = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+      let formatado = dataObj.toLocaleDateString('pt-BR', opcoes);
+      // Coloca a primeira letra em maiúscula
+      return formatado.charAt(0).toUpperCase() + formatado.slice(1);
+    }
+
+    async function carregarPainel() {
+      carregarAgendamentos();
+      carregarBloqueios();
+    }
+
+    async function carregarAgendamentos() {
+      const lista = document.getElementById("listaAgendamentos");
+      lista.innerHTML = "<p class='text-stone-500'>Carregando agendamentos...</p>";
+
+      const querySnapshot = await getDocs(collection(db, "agendamentos"));
+      lista.innerHTML = "";
+
+      let possuiAgendamentoAtivo = false;
+
+      querySnapshot.forEach((documento) => {
+        const dados = documento.data();
+        const id = documento.id;
+
+        if (dados.data < hoje) return;
+
+        possuiAgendamentoAtivo = true;
+
+        const phoneNumeros = dados.whatsapp ? dados.whatsapp.replace(/\D/g, "") : "";
+        const waLink = phoneNumeros.startsWith("55") ? phoneNumeros : `55${phoneNumeros}`;
+        const dataFormatada = formatarDataBonita(dados.data);
+
+        const item = document.createElement("div");
+        item.className = "bg-white p-4 rounded-2xl shadow-md border border-amber-900/20 flex flex-wrap justify-between items-center gap-4";
+        item.innerHTML = `
+          <div>
+            <p class="font-bold text-stone-900 text-lg">${dados.nome}</p>
+            <p class="text-sm text-stone-600">
+              📱 WhatsApp: 
+              <a href="https://wa.me/${waLink}" target="_blank" class="text-green-700 font-bold underline hover:text-green-900 transition">
+                ${dados.whatsapp} (Clique para abrir conversa)
+              </a>
+            </p>
+            <p class="text-sm text-stone-700">💅 <strong class="text-amber-950">${dados.servico}</strong></p>
+            <p class="text-xs font-semibold text-amber-900 mt-1">📅 ${dataFormatada} às ${dados.hora}:00</p>
+          </div>
+          <button onclick="cancelarAgendamento('${id}')" class="bg-red-700 hover:bg-red-800 text-white text-xs px-3.5 py-2 rounded-xl font-semibold transition shadow-sm">
+            Cancelar / Apagar
+          </button>
+        `;
+        lista.appendChild(item);
+      });
+
+      if (!possuiAgendamentoAtivo) {
+        lista.innerHTML = "<p class='text-stone-500'>Nenhum agendamento futuro ou para hoje encontrado.</p>";
+      }
+    }
+
+    async function carregarBloqueios() {
+      const listaBloqueios = document.getElementById("listaBloqueios");
+      listaBloqueios.innerHTML = "<p class='text-stone-500'>Carregando bloqueios...</p>";
+
+      const querySnapshot = await getDocs(collection(db, "bloqueios"));
+      listaBloqueios.innerHTML = "";
+
+      let possuiBloqueioAtivo = false;
+
+      querySnapshot.forEach((documento) => {
+        const dados = documento.data();
+        const id = documento.id;
+
+        if (dados.data < hoje) return;
+
+        possuiBloqueioAtivo = true;
+        const dataFormatada = formatarDataBonita(dados.data);
+
+        const descricaoBloqueio = dados.tipo === "dia_inteiro" 
+          ? `🔒 <strong class="text-red-900">Dia Inteiro Fechado</strong>` 
+          : `⏰ <strong class="text-amber-950">Horário Específico:</strong> ${dados.hora}:00`;
+
+        const item = document.createElement("div");
+        item.className = "bg-white p-4 rounded-2xl shadow-md border border-red-900/20 flex flex-wrap justify-between items-center gap-4";
+        item.innerHTML = `
+          <div>
+            <p class="text-sm text-stone-800">📅 Data: <strong class="text-stone-900">${dataFormatada}</strong></p>
+            <p class="text-sm mt-1">${descricaoBloqueio}</p>
+          </div>
+          <button onclick="removerBloqueio('${id}')" class="bg-stone-800 hover:bg-red-800 text-white text-xs px-3.5 py-2 rounded-xl font-semibold transition shadow-sm">
+            Desbloquear / Liberar
+          </button>
+        `;
+        listaBloqueios.appendChild(item);
+      });
+
+      if (!possuiBloqueioAtivo) {
+        listaBloqueios.innerHTML = "<p class='text-stone-500'>Nenhum bloqueio ativo no momento.</p>";
+      }
+    }
+
+    async function cancelarAgendamento(id) {
+      if (confirm("Deseja realmente cancelar este agendamento? O horário ficará livre no site imediatamente.")) {
+        await deleteDoc(doc(db, "agendamentos", id));
+        alert("Agendamento cancelado com sucesso!");
+        carregarPainel();
+      }
+    }
+
+    async function removerBloqueio(id) {
+      if (confirm("Deseja remover este bloqueio e liberar o horário no site?")) {
+        await deleteDoc(doc(db, "bloqueios", id));
+        alert("Bloqueio removido com sucesso! Horário liberado.");
+        carregarPainel();
+      }
+    }
+
+    async function bloquearDiaInteiro(e) {
+      e.preventDefault();
+      const data = document.getElementById("dataBloqueioDia").value;
+      if (!data) return;
+
+      await addDoc(collection(db, "bloqueios"), {
+        data: data,
+        tipo: "dia_inteiro",
+        criadoEm: new Date()
+      });
+      alert(`O dia selecionado foi completamente FECHADO/BLOQUEADO!`);
+      document.getElementById("formBloqueioDia").reset();
+      carregarPainel();
+    }
+
+    async function bloquearHorarioManual(e) {
+      e.preventDefault();
+      const data = document.getElementById("dataBloqueioHora").value;
+      const hora = document.getElementById("horaBloqueio").value;
+
+      if (!data || !hora) return;
+
+      await addDoc(collection(db, "bloqueios"), {
+        data: data,
+        hora: hora,
+        tipo: "horario_especifico",
+        criadoEm: new Date()
+      });
+      alert(`Horário das ${hora}:00 bloqueado com sucesso!`);
+      document.getElementById("formBloqueioHora").reset();
+      carregarPainel();
+    }
+
+    window.cancelarAgendamento = cancelarAgendamento;
+    window.removerBloqueio = removerBloqueio;
+    window.carregarPainel = carregarPainel;
+
+    document.addEventListener("DOMContentLoaded", () => {
+      carregarPainel();
+      document.getElementById("formBloqueioDia")?.addEventListener("submit", bloquearDiaInteiro);
+      document.getElementById("formBloqueioHora")?.addEventListener("submit", bloquearHorarioManual);
+    });
+  </script>
+</head>
+<body class="p-6 min-h-screen">
+  <div class="max-w-4xl mx-auto space-y-6">
+    
+    <!-- Cabeçalho -->
+    <div class="flex justify-between items-center bg-[#fcfbf9] p-6 rounded-3xl shadow-xl border border-amber-900/20">
+      <div>
+        <h1 class="text-2xl font-serif text-stone-900 font-bold">Painel de Controle</h1>
+        <p class="text-sm text-stone-500">Espaço Esplêndida</p>
+      </div>
+      <button onclick="carregarPainel()" class="bg-stone-950 hover:bg-amber-900 text-white px-4 py-2 rounded-xl text-sm font-bold transition">
+        Atualizar Painel
+      </button>
+    </div>
+
+    <!-- Bloqueios -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      
+      <!-- Bloquear Dia Inteiro -->
+      <div class="bg-[#fcfbf9] p-6 rounded-3xl shadow-xl border border-amber-900/20 flex flex-col justify-between">
+        <div>
+          <h2 class="text-lg font-bold text-stone-900 mb-1">Bloquear DIA INTEIRO</h2>
+          <p class="text-xs text-stone-500 mb-4">A data inteira ficará indisponível para agendamento.</p>
+          <form id="formBloqueioDia" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold mb-1 text-stone-700">Selecione a Data</label>
+              <input type="date" id="dataBloqueioDia" required class="w-full p-2.5 bg-white border border-stone-300 rounded-xl text-sm text-stone-900 outline-none">
+            </div>
+            <button type="submit" class="w-full bg-red-800 hover:bg-red-900 text-white py-2.5 rounded-xl text-sm font-semibold transition shadow-sm">
+              Fechado / Bloquear Dia
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Bloquear Horário Específico -->
+      <div class="bg-[#fcfbf9] p-6 rounded-3xl shadow-xl border border-amber-900/20 flex flex-col justify-between">
+        <div>
+          <h2 class="text-lg font-bold text-stone-900 mb-1">Bloquear HORÁRIO Específico</h2>
+          <p class="text-xs text-stone-500 mb-4">Bloqueia apenas uma hora selecionada do dia.</p>
+          <form id="formBloqueioHora" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold mb-1 text-stone-700">Data</label>
+              <input type="date" id="dataBloqueioHora" required class="w-full p-2.5 bg-white border border-stone-300 rounded-xl text-sm text-stone-900 outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold mb-1 text-stone-700">Horário</label>
+              <select id="horaBloqueio" required class="w-full p-2.5 bg-white border border-stone-300 rounded-xl text-sm text-stone-900 outline-none">
+                <option value="8">08:00</option>
+                <option value="9">09:00</option>
+                <option value="10">10:00</option>
+                <option value="11">11:00</option>
+                <option value="12">12:00</option>
+                <option value="13">13:00</option>
+                <option value="14">14:00</option>
+                <option value="15">15:00</option>
+                <option value="16">16:00</option>
+                <option value="17">17:00</option>
+                <option value="18">18:00</option>
+                <option value="19">19:00</option>
+                <option value="20">20:00</option>
+              </select>
+            </div>
+            <button type="submit" class="w-full bg-amber-900 hover:bg-amber-950 text-white py-2.5 rounded-xl text-sm font-semibold transition shadow-sm">
+              Bloquear Horário
+            </button>
+          </form>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Lista de Bloqueios Ativos -->
+    <div class="space-y-4 pt-2">
+      <h2 class="text-xl font-bold text-stone-905 text-stone-900">Bloqueios Ativos (Possível Desbloquear)</h2>
+      <div id="listaBloqueios" class="space-y-3">
+        <!-- Itens carregados via JS -->
+      </div>
+    </div>
+
+    <!-- Lista de Agendamentos -->
+    <div class="space-y-4 pt-4">
+      <h2 class="text-xl font-bold text-stone-900">Agendamentos Confirmados (Hoje e Futuros)</h2>
+      <div id="listaAgendamentos" class="space-y-3">
+        <!-- Itens carregados via JS -->
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>
