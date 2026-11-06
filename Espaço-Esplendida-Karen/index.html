@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Espaço Esplêndida - Agendamento Nails</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background: linear-gradient(135deg, #f5f2eb 0%, #e6dcc8 100%);
+      color: #2c241d;
+      font-family: 'Georgia', serif;
+    }
+  </style>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAVuqbTtOzOs_hmASymvE-UAdxPIlOo93g",
+      authDomain: "espaco-esplendida-karen.firebaseapp.com",
+      projectId: "espaco-esplendida-karen",
+      storageBucket: "espaco-esplendida-karen.firebasestorage.app",
+      messagingSenderId: "150426245872",
+      appId: "1:150426245872:web:f9e73409cdf829e3fd8035",
+      measurementId: "G-G6NHLL8254"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const horasDisponiveis = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+
+    async function carregarHorarios() {
+      const dataInput = document.getElementById("dataAgendamento").value;
+      const gridHorarios = document.getElementById("gridHorarios");
+      gridHorarios.innerHTML = "";
+
+      if (!dataInput) return;
+
+      const dataObj = new Date(dataInput + "T00:00:00");
+      const diaSemana = dataObj.getDay();
+
+      if (diaSemana === 0) {
+        gridHorarios.innerHTML = "<p class='col-span-full text-center text-amber-900 font-semibold'>Atendimentos de Segunda a Sábado.</p>";
+        return;
+      }
+
+      const qAgendamentos = query(collection(db, "agendamentos"), where("data", "==", dataInput));
+      const qBloqueios = query(collection(db, "bloqueios"), where("data", "==", dataInput));
+
+      const [snapAgendamentos, snapBloqueios] = await Promise.all([
+        getDocs(qAgendamentos),
+        getDocs(qBloqueios)
+      ]);
+
+      const horasBloqueadas = new Set();
+      let diaInteiroBloqueado = false;
+
+      snapBloqueios.forEach(doc => {
+        const d = doc.data();
+        if (d.tipo === "dia_inteiro") {
+          diaInteiroBloqueado = true;
+        } else {
+          horasBloqueadas.add(parseInt(d.hora));
+        }
+      });
+
+      if (diaInteiroBloqueado) {
+        gridHorarios.innerHTML = "<p class='col-span-full text-center text-red-900 font-semibold'>Data indisponível para agendamento.</p>";
+        return;
+      }
+
+      // Bloqueio dinâmico por agendamento de cliente (Trava bidirecional de 2 horas)
+    snapAgendamentos.forEach(doc => {
+      const horaOcupada = parseInt(doc.data().hora);
+      for (let i = -1; i <= 1; i++) {
+        horasBloqueadas.add(horaOcupada + i);
+      }
+    });
+
+      horasDisponiveis.forEach(hora => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        const estaOcupado = horasBloqueadas.has(hora);
+
+        btn.innerText = `${hora}:00`;
+        btn.className = estaOcupado 
+          ? "p-3 rounded-xl text-sm font-semibold bg-stone-300 text-stone-500 cursor-not-allowed border border-stone-400" 
+          : "btn-horario p-3 rounded-xl text-sm font-semibold border border-amber-800 text-amber-950 bg-white hover:bg-amber-900 hover:text-white transition shadow-sm";
+
+        if (estaOcupado) {
+          btn.disabled = true;
+        } else {
+          btn.onclick = () => {
+            document.querySelectorAll(".btn-horario").forEach(b => b.classList.remove("bg-amber-900", "text-white"));
+            btn.classList.add("bg-amber-900", "text-white");
+            document.getElementById("horaSelecionada").value = hora;
+          };
+        }
+        gridHorarios.appendChild(btn);
+      });
+    }
+
+    window.carregarHorarios = carregarHorarios;
+
+    document.addEventListener("DOMContentLoaded", () => {
+      document.getElementById("formAgendamento")?.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const nome = document.getElementById("nome").value;
+        const whatsapp = document.getElementById("whatsapp").value;
+        const servico = document.getElementById("servico").value;
+        const data = document.getElementById("dataAgendamento").value;
+        const hora = document.getElementById("horaSelecionada").value;
+
+        if (!hora) {
+          alert("Por favor, selecione um horário disponível.");
+          return;
+        }
+
+        try {
+          await addDoc(collection(db, "agendamentos"), {
+            nome, whatsapp, servico, data, hora,
+            criadoEm: new Date()
+          });
+
+          const [ano, mes, dia] = data.split("-");
+          const dataFormatada = `${dia}/${mes}/${ano}`;
+
+          const cardPrincipal = document.querySelector(".max-w-2xl");
+          cardPrincipal.innerHTML = `
+            <div class="text-center py-10 space-y-6">
+              <div class="w-16 h-16 bg-amber-900 text-white rounded-full flex items-center justify-center mx-auto text-3xl shadow-lg">✓</div>
+              <h2 class="text-3xl font-serif text-stone-900 italic">Agendamento Confirmado!</h2>
+              <p class="text-stone-700 text-base">Muito obrigada, <strong class="text-stone-900">${nome}</strong>!</p>
+              <div class="bg-white p-6 rounded-2xl border border-amber-900/30 shadow-sm max-w-md mx-auto text-left space-y-2">
+                <p class="text-sm text-stone-800">💅 <strong class="text-amber-950">Procedimento:</strong> ${servico}</p>
+                <p class="text-sm text-stone-800">📅 <strong class="text-amber-950">Data:</strong> ${dataFormatada}</p>
+                <p class="text-sm text-stone-800">⏰ <strong class="text-amber-950">Horário:</strong> ${hora}:00</p>
+              </div>
+              <p class="text-stone-600 text-sm italic">Esperamos você no Espaço Esplêndida!</p>
+              <button onclick="location.reload()" class="mt-4 bg-stone-950 hover:bg-amber-900 text-white font-bold py-3 px-8 rounded-xl shadow-lg transition tracking-wider text-sm">
+                Fazer Novo Agendamento
+              </button>
+            </div>
+          `;
+        } catch (err) {
+          alert("Erro ao agendar: " + err.message);
+        }
+      });
+    });
+  </script>
+</head>
+<body class="min-h-screen p-4 flex justify-center items-center">
+  <div class="bg-[#fcfbf9] p-6 md:p-10 rounded-3xl shadow-2xl w-full max-w-2xl border border-amber-900/20">
+    
+    <!-- Cabeçalho -->
+    <div class="text-center mb-8">
+      <h1 class="text-4xl md:text-5xl font-serif text-stone-900 italic tracking-wide">Catálogo ♡</h1>
+      <div class="w-24 h-0.5 bg-amber-900/40 mx-auto mt-3"></div>
+    </div>
+
+    <!-- Catálogo de Serviços -->
+    <div class="space-y-3 mb-8">
+      
+      <div class="bg-white border border-amber-900/30 rounded-2xl p-4 shadow-sm hover:border-amber-900 transition flex justify-between items-center">
+        <div>
+          <p class="text-stone-800 font-medium text-sm md:text-base">Alongamento molde F1</p>
+          <p class="text-xs text-stone-500 italic">(Incluso Cutilagem, Decoração e Esmaltação)</p>
+        </div>
+        <span class="bg-stone-950 text-white px-4 py-1.5 rounded-full text-xs md:text-sm font-semibold tracking-wider whitespace-nowrap">R$ 155,00</span>
+      </div>
+
+      <div class="bg-white border border-amber-900/30 rounded-2xl p-4 shadow-sm hover:border-amber-900 transition flex justify-between items-center">
+        <div>
+          <p class="text-stone-800 font-medium text-sm md:text-base">Manutenção molde F1</p>
+          <p class="text-xs text-stone-500 italic">(Incluso troca de formato, decoração, Cutilagem e esmaltação)</p>
+        </div>
+        <span class="bg-stone-950 text-white px-4 py-1.5 rounded-full text-xs md:text-sm font-semibold tracking-wider whitespace-nowrap">R$ 105,00</span>
+      </div>
+
+      <div class="flex justify-between items-center bg-white border border-amber-900/30 rounded-full px-6 py-3 shadow-sm hover:border-amber-900 transition">
+        <span class="text-stone-800 font-medium text-sm md:text-base">Banho de gel</span>
+        <span class="bg-stone-950 text-white px-4 py-1.5 rounded-full text-xs md:text-sm font-semibold tracking-wider">R$ 100,00</span>
+      </div>
+
+      <div class="flex justify-between items-center bg-white border border-amber-900/30 rounded-full px-6 py-3 shadow-sm hover:border-amber-900 transition">
+        <span class="text-stone-800 font-medium text-sm md:text-base">Manutenção banho de gel</span>
+        <span class="bg-stone-950 text-white px-4 py-1.5 rounded-full text-xs md:text-sm font-semibold tracking-wider">R$ 100,00</span>
+      </div>
+
+      <div class="flex justify-between items-center bg-white border border-amber-900/30 rounded-full px-6 py-3 shadow-sm hover:border-amber-900 transition">
+        <span class="text-stone-800 font-medium text-sm md:text-base">Pedicure em gel</span>
+        <span class="bg-stone-950 text-white px-4 py-1.5 rounded-full text-xs md:text-sm font-semibold tracking-wider">R$ 50,00</span>
+      </div>
+
+      <div class="flex justify-between items-center bg-white border border-amber-900/30 rounded-full px-6 py-3 shadow-sm hover:border-amber-900 transition">
+        <span class="text-stone-800 font-medium text-sm md:text-base">Pedicure comum</span>
+        <span class="bg-stone-950 text-white px-4 py-1.5 rounded-full text-xs md:text-sm font-semibold tracking-wider">R$ 30,00</span>
+      </div>
+
+      <div class="flex justify-between items-center bg-white border border-amber-900/30 rounded-full px-6 py-3 shadow-sm hover:border-amber-900 transition">
+        <span class="text-stone-800 font-medium text-sm md:text-base">Spá dos pés</span>
+        <span class="bg-stone-950 text-white px-4 py-1.5 rounded-full text-xs md:text-sm font-semibold tracking-wider">R$ 45,00</span>
+      </div>
+
+      <div class="flex justify-between items-center bg-white border border-amber-900/30 rounded-full px-6 py-3 shadow-sm hover:border-amber-900 transition">
+        <span class="text-stone-800 font-medium text-sm md:text-base">Combo spa dos pés + pedicure em gel</span>
+        <span class="bg-stone-950 text-white px-4 py-1.5 rounded-full text-xs md:text-sm font-semibold tracking-wider">R$ 85,00</span>
+      </div>
+
+      <div class="flex justify-between items-center bg-white border border-amber-900/30 rounded-full px-6 py-3 shadow-sm hover:border-amber-900 transition">
+        <span class="text-stone-800 font-medium text-sm md:text-base">Combo spa dos pés + pedicure comum</span>
+        <span class="bg-stone-950 text-white px-4 py-1.5 rounded-full text-xs md:text-sm font-semibold tracking-wider">R$ 65,00</span>
+      </div>
+
+    </div>
+
+    <!-- Form Agendamento -->
+    <form id="formAgendamento" class="space-y-4 pt-4 border-t border-amber-900/20">
+      <h3 class="text-lg font-serif text-amber-950 text-center mb-2">Faça seu Agendamento Online</h3>
+      
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold mb-1 text-stone-700">Nome Completo</label>
+          <input type="text" id="nome" required class="w-full p-3 bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-amber-900 outline-none text-stone-900">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-1 text-stone-700">WhatsApp</label>
+          <input type="tel" id="whatsapp" required placeholder="(31) 90000-0000" class="w-full p-3 bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-amber-900 outline-none text-stone-900">
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold mb-1 text-stone-700">Selecione o Procedimento</label>
+          <select id="servico" required class="w-full p-3 bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-amber-900 outline-none text-stone-900">
+            <option value="Alongamento molde F1">Alongamento molde F1 - R$ 155,00</option>
+            <option value="Manutenção molde F1">Manutenção molde F1 - R$ 105,00</option>
+            <option value="Banho de gel">Banho de gel - R$ 100,00</option>
+            <option value="Manutenção banho de gel">Manutenção banho de gel - R$ 100,00</option>
+            <option value="Pedicure em gel">Pedicure em gel - R$ 50,00</option>
+            <option value="Pedicure comum">Pedicure comum - R$ 30,00</option>
+            <option value="Spá dos pés">Spá dos pés - R$ 45,00</option>
+            <option value="Combo spa dos pés + pedicure em gel">Combo spa dos pés + pedicure em gel - R$ 85,00</option>
+            <option value="Combo spa dos pés + pedicure comum">Combo spa dos pés + pedicure comum - R$ 65,00</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-1 text-stone-700">Data do Atendimento</label>
+          <input type="date" id="dataAgendamento" onchange="carregarHorarios()" required class="w-full p-3 bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-amber-900 outline-none text-stone-900">
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold mb-2 text-stone-700">Horários Disponíveis (Duração de 2h por procedimento)</label>
+        <input type="hidden" id="horaSelecionada">
+        <div id="gridHorarios" class="grid grid-cols-3 sm:grid-cols-4 gap-2">
+          <p class="col-span-full text-center text-stone-500 text-xs py-4">Selecione uma data acima para carregar os horários...</p>
+        </div>
+      </div>
+
+      <button type="submit" class="w-full bg-stone-950 hover:bg-amber-900 text-white font-bold py-3.5 rounded-xl shadow-lg transition mt-4 tracking-wider">
+        Confirmar Agendamento
+      </button>
+    </form>
+
+    <!-- Rodapé -->
+    <div class="text-center mt-8 pt-4 border-t border-amber-900/20">
+      <p class="text-xs text-stone-600 mb-2">♡ @karenjasmim_nails</p>
+      <div class="w-24 h-0.5 bg-amber-900/45 mx-auto mb-3"></div>
+      <h2 class="text-3xl font-serif text-stone-900 italic">Espaço Esplêndida</h2>
+    </div>
+
+  </div>
+</body>
+</html>
